@@ -1,4 +1,4 @@
-﻿from typing import Any, List, Optional
+from typing import Any, List, Optional
 
 import requests
 from langchain_core.tools import tool
@@ -20,7 +20,7 @@ def _fetch_json(url: str, params: Optional[dict] = None) -> Any:
         return None
 
 
-@tool
+@tool("list_hotels")
 def get_hotels() -> List[dict]:
     """
     Get a list of all available hotels.
@@ -34,27 +34,27 @@ def get_hotels() -> List[dict]:
     return []
 
 
-@tool
+@tool("search_hotels")
 def search_hotel(
     city: str,
-    checkIn: Optional[str] = None,
-    checkOut: Optional[str] = None,
+    check_in: Optional[str] = None,
+    check_out: Optional[str] = None,
 ) -> List[dict]:
     """
     Search for hotels by city and optional check-in/check-out dates.
 
     Args:
         city: Hotel city name. Example: Bangkok, Colombo, Singapore.
-        checkIn: Optional check-in date in YYYY-MM-DD format.
-        checkOut: Optional check-out date in YYYY-MM-DD format.
+        check_in: Optional check-in date in YYYY-MM-DD format.
+        check_out: Optional check-out date in YYYY-MM-DD format.
     """
     params = {"city": city}
 
-    if checkIn:
-        params["checkIn"] = checkIn
+    if check_in:
+        params["checkIn"] = check_in
 
-    if checkOut:
-        params["checkOut"] = checkOut
+    if check_out:
+        params["checkOut"] = check_out
 
     data = _fetch_json(f"{HOTEL_API_BASE}/search", params=params)
 
@@ -94,7 +94,7 @@ def book_hotel(
     response = requests.post(f"{HOTEL_API_BASE}/book", json=payload)
     return response.json()
 
-@tool
+@tool("list_flights")
 def get_flights() -> List[dict]:
     """
     Get a list of all available flights.

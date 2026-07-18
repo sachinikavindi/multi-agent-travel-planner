@@ -16,13 +16,18 @@ conversation_history_messages = []
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start the MCP server subprocesses
-    logger.info("Initializing MCP Servers...")
-    await mcp_manager.start()
-    yield
-    # Gracefully stop the MCP servers on shutdown
-    logger.info("Shutting down MCP Servers...")
-    await mcp_manager.stop()
+    import os
+    if os.environ.get("VERCEL"):
+        logger.info("Running on Vercel. Bypassing MCP subprocess startup.")
+        yield
+    else:
+        # Start the MCP server subprocesses
+        logger.info("Initializing MCP Servers...")
+        await mcp_manager.start()
+        yield
+        # Gracefully stop the MCP servers on shutdown
+        logger.info("Shutting down MCP Servers...")
+        await mcp_manager.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -44,6 +49,10 @@ async def hello():
 @app.get("/hotels")
 async def list_hotels():
     try:
+        import os
+        if os.environ.get("VERCEL"):
+            from agents.tools import get_hotels
+            return get_hotels.invoke({})
         result = await mcp_manager.call_tool("hotel", "list_hotels", {})
         if result.content and len(result.content) > 0:
             return json.loads(result.content[0].text)
@@ -56,6 +65,10 @@ async def list_hotels():
 @app.get("/flights")
 async def list_flights():
     try:
+        import os
+        if os.environ.get("VERCEL"):
+            from agents.tools import get_flights
+            return get_flights.invoke({})
         result = await mcp_manager.call_tool("flight", "list_flights", {})
         if result.content and len(result.content) > 0:
             return json.loads(result.content[0].text)

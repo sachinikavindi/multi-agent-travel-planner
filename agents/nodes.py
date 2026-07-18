@@ -175,26 +175,39 @@ async def router(state: GraphState) -> dict:
 
 
 async def run_mcp_agent(server_name: str, system_prompt_text: str, state: GraphState) -> dict:
-    # E3: Graceful External-Failure Handling
-    try:
-        session = mcp_manager.get_session(server_name)
-    except Exception as e:
-        logger.error(f"MCP server '{server_name}' connection error: {e}")
-        return {
-            "response_text": f"Error: The {server_name} service is currently unavailable. Please try again later.",
-            "hotel_results": [],
-            "flight_results": [],
-        }
+    import os
+    if os.environ.get("VERCEL"):
+        from agents.tools import (
+            get_hotels, search_hotel, book_hotel,
+            get_flights, search_flights, book_flight
+        )
+        if server_name == "hotel":
+            tools = [get_hotels, search_hotel, book_hotel]
+        elif server_name == "flight":
+            tools = [get_flights, search_flights, book_flight]
+        else:
+            tools = []
+    else:
+        # E3: Graceful External-Failure Handling
+        try:
+            session = mcp_manager.get_session(server_name)
+        except Exception as e:
+            logger.error(f"MCP server '{server_name}' connection error: {e}")
+            return {
+                "response_text": f"Error: The {server_name} service is currently unavailable. Please try again later.",
+                "hotel_results": [],
+                "flight_results": [],
+            }
 
-    try:
-        tools = await load_mcp_tools(session)
-    except Exception as e:
-        logger.error(f"Failed to load tools from MCP server '{server_name}': {e}")
-        return {
-            "response_text": f"Error: Failed to retrieve capabilities from the {server_name} service.",
-            "hotel_results": [],
-            "flight_results": [],
-        }
+        try:
+            tools = await load_mcp_tools(session)
+        except Exception as e:
+            logger.error(f"Failed to load tools from MCP server '{server_name}': {e}")
+            return {
+                "response_text": f"Error: Failed to retrieve capabilities from the {server_name} service.",
+                "hotel_results": [],
+                "flight_results": [],
+            }
 
     tool_map = {tool.name: tool for tool in tools}
     model_with_tools = llm.bind_tools(tools)

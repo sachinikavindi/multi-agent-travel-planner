@@ -63,7 +63,7 @@ async def call_chat_api_stream(message: str):
                     yield {"type": "error", "content": f"Backend returned HTTP error code: {response.status_code}"}
                     return
                 
-                async for line in response.iter_lines():
+                async for line in response.aiter_lines():
                     if line.startswith("data: "):
                         data_str = line[len("data: "):].strip()
                         if data_str:
