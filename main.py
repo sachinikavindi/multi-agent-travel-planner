@@ -7,6 +7,8 @@ from fastapi.responses import StreamingResponse
 from entity import ChatRequest, ChatResponse
 from agents.graph import graph
 from agents.mcp_client import mcp_manager
+import gradio as gr
+from frontend import demo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,9 +43,7 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-async def hello():
-    return {"message": "Hello, World!"}
+app = gr.mount_gradio_app(app, demo, path="/")
 
 
 @app.get("/hotels")

@@ -52,27 +52,90 @@ def format_flights_markdown(flights):
     return "\n".join(md) + "\n"
 
 
-async def call_chat_api_stream(message: str):
-    headers = {"Content-Type": "application/json"}
-    payload = {"message": message}
+async def run_graph_directly(message: str, history: list):
+    from agents.graph import graph
+    
+    # Convert Gradio history list of dicts to flat list of message strings
+    recent_history = history[-7:]
+    flattened_messages = []
+    for msg in recent_history:
+        flattened_messages.append(msg["content"])
+    flattened_messages.append(message)
+    
+    initial_state = {
+        "messages": flattened_messages,
+        "intent": "",
+        "sub_action": "",
+        "city": None,
+        "check_in": None,
+        "check_out": None,
+        "origin": None,
+        "destination": None,
+        "flight_date": None,
+        "hotel_id": None,
+        "guest_name": None,
+        "guest_email": None,
+        "room_type": None,
+        "flight_id": None,
+        "passenger_name": None,
+        "passenger_email": None,
+        "hotel_results": [],
+        "flight_results": [],
+        "response_text": "",
+    }
+    
+    active_node = ""
+    final_state = None
     
     try:
-        async with httpx.AsyncClient() as client:
-            async with client.stream("POST", STREAM_API_URL, json=payload, headers=headers, timeout=60.0) as response:
-                if response.status_code != 200:
-                    yield {"type": "error", "content": f"Backend returned HTTP error code: {response.status_code}"}
-                    return
+        async for event in graph.astream_events(initial_state, version="v2"):
+            kind = event["event"]
+            
+            if kind == "on_node_start":
+                active_node = event["name"]
+                status_msg = ""
+                if active_node == "router":
+                    status_msg = "🔄 Routing travel query..."
+                elif active_node == "hotel_node":
+                    status_msg = "🏨 Hotel Agent active. Analyzing suggestions..."
+                elif active_node == "flight_node":
+                    status_msg = "✈️ Flight Agent active. Checking schedules..."
+                elif active_node == "unknown_node":
+                    status_msg = "💬 Travel Assistant active..."
+                elif active_node == "generate_response":
+                    status_msg = "📝 Formatting final itinerary..."
                 
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[len("data: "):].strip()
-                        if data_str:
-                            try:
-                                yield json.loads(data_str)
-                            except Exception as e:
-                                yield {"type": "error", "content": f"Parsing stream chunk failed: {str(e)}"}
-    except Exception as exc:
-        yield {"type": "error", "content": f"Could not connect to the backend agent server. Details: {str(exc)}"}
+                if status_msg:
+                    yield {"type": "status", "content": status_msg}
+                    
+            elif kind == "on_tool_start":
+                tool_name = event["name"]
+                yield {"type": "status", "content": f"🔍 Querying tool: {tool_name}..."}
+                
+            elif kind == "on_chat_model_stream":
+                if active_node in ("hotel_node", "flight_node", "unknown_node"):
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield {"type": "token", "content": content}
+                        
+            elif kind == "on_chain_end":
+                output = event["data"].get("output")
+                if isinstance(output, dict) and "response_text" in output:
+                    final_state = output
+                    
+    except Exception as e:
+        yield {"type": "error", "content": f"Execution error: {str(e)}"}
+        return
+        
+    if final_state:
+        yield {
+            "type": "final",
+            "response": final_state.get("response_text", ""),
+            "hotels": final_state.get("hotel_results", []),
+            "flights": final_state.get("flight_results", [])
+        }
+    else:
+        yield {"type": "error", "content": "Could not formulate travel recommendation."}
 
 
 async def respond(message, history):
@@ -92,7 +155,7 @@ async def respond(message, history):
     yield history
 
     try:
-        async for event in call_chat_api_stream(message):
+        async for event in run_graph_directly(message, history[:-1]):
             ev_type = event.get("type")
             
             if ev_type == "status":
@@ -128,7 +191,7 @@ async def respond(message, history):
                 yield history
                 
     except Exception as e:
-        assistant_msg += f"\n\n❌ **Connection Error**: {str(e)}"
+        assistant_msg += f"\n\n❌ **Execution Error**: {str(e)}"
         history[-1]["content"] = assistant_msg
         yield history
 
@@ -220,33 +283,32 @@ tr:hover {
 
 
 
-def main():
-    with gr.Blocks(title="Global Travel Agent Dashboard") as demo:
-        gr.Markdown(
-            """
-            # ✈️ Global Travel Planner
-            ### Intelligent Multi-Agent Travel Assistant powered by MCP Tools
-            """
+with gr.Blocks(title="Global Travel Agent Dashboard") as demo:
+    gr.Markdown(
+        """
+        # ✈️ Global Travel Planner
+        ### Intelligent Multi-Agent Travel Assistant powered by MCP Tools
+        """
+    )
+
+    with gr.Column(elem_classes="panel-card"):
+        chatbot = gr.Chatbot(
+            elem_id="chatbot-area"
         )
-
-        with gr.Column(elem_classes="panel-card"):
-            chatbot = gr.Chatbot(
-                elem_id="chatbot-area"
+        with gr.Row():
+            message = gr.Textbox(
+                label="Your query",
+                placeholder="e.g. Find me hotels in Bangkok or flights from CMB to BKK on 2026-08-01",
+                scale=9
             )
-            with gr.Row():
-                message = gr.Textbox(
-                    label="Your query",
-                    placeholder="e.g. Find me hotels in Bangkok or flights from CMB to BKK on 2026-08-01",
-                    scale=9
-                )
-                submit = gr.Button("Send", scale=1, elem_classes="button-primary")
+            submit = gr.Button("Send", scale=1, elem_classes="button-primary")
 
-        # Trigger responses
-        submit.click(respond, inputs=[message, chatbot], outputs=[chatbot])
-        message.submit(respond, inputs=[message, chatbot], outputs=[chatbot])
+    # Trigger responses
+    submit.click(respond, inputs=[message, chatbot], outputs=[chatbot])
+    message.submit(respond, inputs=[message, chatbot], outputs=[chatbot])
 
 
-
+def main():
     demo.launch(server_name="0.0.0.0", server_port=7860, css=custom_css)
 
 
